@@ -1,0 +1,117 @@
+"""
+Pestaña para ocultar mensajes en el audio de videos.
+Estructura base preparada para desarrollo futuro.
+"""
+
+import customtkinter as ctk
+from tkinter import messagebox
+from core.audio_steganography import AudioStegano
+
+
+class AudioTab:
+    """Pestaña para ocultar texto en audio de video."""
+    
+    def __init__(self, parent, colors):
+        self.parent = parent
+        self.colors = colors
+        self.stegano = AudioStegano()
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Configura la interfaz de usuario."""
+        
+        # Frame principal con padding
+        main_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Título
+        title = ctk.CTkLabel(
+            main_frame,
+            text="🔊 Ocultar Mensaje en Audio",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text']
+        )
+        title.pack(anchor="w", pady=(0, 10))
+        
+        # Descripción
+        desc = ctk.CTkLabel(
+            main_frame,
+            text="Oculta mensajes de texto en la pista de audio del video usando esteganografía LSB.\n"
+                 "El mensaje quedará inaudible pero podrá ser recuperado del audio posteriormente.",
+            font=ctk.CTkFont(size=13),
+            text_color=self.colors['text_secondary'],
+            justify="left"
+        )
+        desc.pack(anchor="w", pady=(0, 20))
+        
+        # Frame de contenido
+        content_frame = ctk.CTkFrame(main_frame, fg_color=self.colors['bg_light'], 
+                                    corner_radius=15)
+        content_frame.pack(fill="both", expand=True)
+        
+        content = ctk.CTkFrame(content_frame, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=40, pady=40)
+        
+        # Icono y mensaje
+        icon_label = ctk.CTkLabel(
+            content,
+            text="🚧",
+            font=ctk.CTkFont(size=80)
+        )
+        icon_label.pack(pady=(20, 20))
+        
+        status_label = ctk.CTkLabel(
+            content,
+            text="Funcionalidad en Desarrollo",
+            font=ctk.CTkFont(size=28, weight="bold"),
+            text_color=self.colors['warning']
+        )
+        status_label.pack(pady=(0, 15))
+        
+        info_label = ctk.CTkLabel(
+            content,
+            text="Esta funcionalidad estará disponible próximamente.\n\n"
+                 "Permitirá:\n"
+                 "• Ocultar mensajes en la pista de audio del video\n"
+                 "• Extraer mensajes del audio de videos procesados\n"
+                 "• Análisis de capacidad del audio\n"
+                 "• Soporte para videos con y sin audio\n"
+                 "• Opción de encriptación del mensaje\n\n"
+                 "Por ahora, puedes usar la pestaña 'Ocultar por Archivo' que está completamente funcional.",
+            font=ctk.CTkFont(size=13),
+            text_color=self.colors['text_secondary'],
+            justify="center"
+        )
+        info_label.pack(pady=(0, 30))
+        
+        # Botón de información
+        info_btn = ctk.CTkButton(
+            content,
+            text="ℹ️ Más Información",
+            command=self.show_info,
+            fg_color=self.colors['accent'],
+            hover_color=self.colors['secondary'],
+            height=45,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        info_btn.pack()
+    
+    def show_info(self):
+        """Muestra información sobre la funcionalidad."""
+        info_text = (
+            "🔜 Próximamente: Ocultar Texto en Audio\n\n"
+            "Esta funcionalidad permitirá ocultar mensajes de texto en la pista "
+            "de audio del video usando el método LSB en las muestras de audio.\n\n"
+            "Características planificadas:\n"
+            "• Ocultar mensajes en archivos WAV sin compresión\n"
+            "• Extracción automática usando FFmpeg\n"
+            "• Detección automática de audio en el video\n"
+            "• Análisis de capacidad del audio\n"
+            "• Encriptación AES opcional\n"
+            "• Soporte para múltiples canales de audio\n\n"
+            "Mientras tanto, la pestaña 'Ocultar por Archivo' está completamente "
+            "funcional y puede usarse para ocultar cualquier tipo de archivo, "
+            "incluyendo archivos de audio."
+        )
+        messagebox.showinfo("Información", info_text)

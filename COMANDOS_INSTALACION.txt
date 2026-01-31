@@ -1,0 +1,175 @@
+================================================================================
+  COMANDOS PARA LEVANTAR EL ENTORNO - VIDEO STEGANOGRAPHY
+================================================================================
+
+OPCIÓN 1: INSTALACIÓN COMPLETA DESDE CERO
+================================================================================
+
+# 1. Navegar a la carpeta del proyecto
+cd C:\Users\edlit\OneDrive\Documentos\Esteganografía_Python
+
+# 2. Crear entorno virtual
+python -m venv venv
+
+# 3. Actualizar pip
+venv\Scripts\python.exe -m pip install --upgrade pip
+
+# 4. Instalar dependencias
+venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# 5. Ejecutar la aplicación
+venv\Scripts\python.exe main.py
+
+
+================================================================================
+OPCIÓN 2: SI YA EXISTE EL ENTORNO VIRTUAL (MÁS RÁPIDO)
+================================================================================
+
+# 1. Navegar a la carpeta del proyecto
+cd C:\Users\edlit\OneDrive\Documentos\Esteganografía_Python
+
+# 2. Ejecutar la aplicación directamente
+venv\Scripts\python.exe main.py
+
+
+================================================================================
+OPCIÓN 3: USAR SCRIPTS AUTOMÁTICOS (MÁS FÁCIL)
+================================================================================
+
+# Opción A: Usar archivo .bat
+run.bat
+
+# Opción B: Usar PowerShell
+.\run.ps1
+
+# Opción C: Doble click en run.bat desde el explorador de Windows
+
+
+================================================================================
+COMANDOS PARA ACTIVAR EL ENTORNO VIRTUAL MANUALMENTE
+================================================================================
+
+# En PowerShell:
+venv\Scripts\Activate.ps1
+python main.py
+
+# En CMD:
+venv\Scripts\activate.bat
+python main.py
+
+
+================================================================================
+VERIFICAR QUE TODO ESTÁ INSTALADO CORRECTAMENTE
+================================================================================
+
+# Ver versión de Python
+venv\Scripts\python.exe --version
+
+# Ver paquetes instalados
+venv\Scripts\python.exe -m pip list
+
+# Verificar que están instalados:
+# - customtkinter
+# - opencv-python
+# - Pillow
+# - numpy
+# - ffmpeg-python
+# - cryptography
+
+
+================================================================================
+SI HAY PROBLEMAS - REINSTALAR TODO
+================================================================================
+
+# 1. Eliminar entorno virtual anterior
+rmdir /s /q venv
+
+# 2. Crear nuevo entorno virtual
+python -m venv venv
+
+# 3. Actualizar pip
+venv\Scripts\python.exe -m pip install --upgrade pip
+
+# 4. Instalar dependencias
+venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# 5. Ejecutar aplicación
+venv\Scripts\python.exe main.py
+
+
+================================================================================
+INSTALAR DEPENDENCIAS UNA POR UNA (SI HAY ERRORES)
+================================================================================
+
+venv\Scripts\python.exe -m pip install customtkinter
+venv\Scripts\python.exe -m pip install opencv-python
+venv\Scripts\python.exe -m pip install Pillow
+venv\Scripts\python.exe -m pip install numpy
+venv\Scripts\python.exe -m pip install ffmpeg-python
+venv\Scripts\python.exe -m pip install cryptography
+
+
+================================================================================
+COMANDOS ÚTILES
+================================================================================
+
+# Actualizar todas las dependencias
+venv\Scripts\python.exe -m pip install --upgrade -r requirements.txt
+
+# Limpiar caché de pip
+venv\Scripts\python.exe -m pip cache purge
+
+# Ver información de un paquete
+venv\Scripts\python.exe -m pip show opencv-python
+
+# Desactivar entorno virtual (si está activado)
+deactivate
+
+
+================================================================================
+RESUMEN RÁPIDO - COPIA Y PEGA ESTOS COMANDOS
+================================================================================
+
+cd C:\Users\edlit\OneDrive\Documentos\Esteganografía_Python
+python -m venv venv
+venv\Scripts\python.exe -m pip install --upgrade pip
+venv\Scripts\python.exe -m pip install -r requirements.txt
+venv\Scripts\python.exe main.py
+
+
+================================================================================
+EJECUTAR LA APLICACIÓN (DESPUÉS DE INSTALAR)
+================================================================================
+
+# Método 1: Directo con Python del venv
+venv\Scripts\python.exe main.py
+
+# Método 2: Usando run.bat
+run.bat
+
+# Método 3: Usando PowerShell
+.\run.ps1
+
+# Método 4: Doble click en run.bat
+
+
+================================================================================
+NOTAS IMPORTANTES
+================================================================================
+
+1. Siempre usa "venv\Scripts\python.exe" en lugar de solo "python"
+   (a menos que hayas activado el entorno virtual)
+
+2. Si usas PowerShell y da error de permisos:
+   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+3. Para cerrar la aplicación: Cierra la ventana o presiona Ctrl+C en la terminal
+
+4. Los videos procesados se guardan en la carpeta "output"
+
+5. Los archivos temporales se guardan en la carpeta "temp"
+
+
+================================================================================
+FIN - ¡LISTO PARA USAR!
+================================================================================
