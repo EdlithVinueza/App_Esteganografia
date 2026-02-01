@@ -1,18 +1,22 @@
 """
-Módulo para ocultar mensajes de texto en los frames de videos usando esteganografía LSB.
+Módulo para ocultar mensajes de texto en los frames de videos usando esteganografía LSB con cifrado.
 """
 
 import cv2
 import numpy as np
+import os
 from typing import Tuple
 from pathlib import Path
-
+from cryptography.fernet import Fernet
+import hashlib
+import base64
 
 class FrameStegano:
-    """Clase para manejar la esteganografía de texto en frames de video."""
+    """Clase para manejar la esteganografía de texto en frames de video con cifrado."""
     
-    MAGIC_MARKER = b'STEG_TEXT_START'
-    MAGIC_END = b'STEG_TEXT_END'
+    # Marcadores para delimitar el mensaje
+    MAGIC_MARKER = "STEG_START"
+    MAGIC_END = "STEG_END"
     
     def __init__(self):
         self.temp_dir = Path("temp")
@@ -20,86 +24,298 @@ class FrameStegano:
         self.temp_dir.mkdir(exist_ok=True)
         self.output_dir.mkdir(exist_ok=True)
     
+    def _derive_key(self, password: str) -> bytes:
+        """
+        Deriva una clave segura a partir de una contraseña.
+        Usa PBKDF2 con SHA256.
+        """
+        salt = b'steg_salt_2024'  # Salt fijo para este proyecto
+        key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        # Fernet requiere una clave base64 de 32 bytes
+        return base64.urlsafe_b64encode(key[:32])
+    
+    def _encrypt_message(self, message: str, password: str) -> bytes:
+        """Cifra un mensaje usando Fernet con la contraseña."""
+        try:
+            key = self._derive_key(password)
+            cipher = Fernet(key)
+            encrypted = cipher.encrypt(message.encode())
+            return encrypted
+        except Exception as e:
+            raise Exception(f"Error al cifrar mensaje: {str(e)}")
+    
+    def _decrypt_message(self, encrypted_data: bytes, password: str) -> str:
+        """Descifra un mensaje usando Fernet con la contraseña."""
+        try:
+            key = self._derive_key(password)
+            cipher = Fernet(key)
+            decrypted = cipher.decrypt(encrypted_data)
+            return decrypted.decode()
+        except Exception as e:
+            raise Exception(f"Error al descifrar mensaje: {str(e)}")
+    
+    def _to_bin(self, data):
+        """Convierte datos (string o bytes) a formato binario."""
+        if isinstance(data, str):
+            return ''.join([format(ord(i), "08b") for i in data])
+        elif isinstance(data, bytes):
+            return ''.join([format(i, "08b") for i in data])
+        elif isinstance(data, int):
+            return format(data, "08b")
+        else:
+            raise TypeError("Tipo no soportado")
+
+    def _bin_to_str(self, binary):
+        """Convierte binario a string."""
+        data = [binary[i:i+8] for i in range(0, len(binary), 8)]
+        return "".join([chr(int(d, 2)) for d in data if d])
+
     def calculate_text_capacity(self, video_path: str) -> Tuple[int, dict]:
-        """
-        Calcula cuántos caracteres de texto se pueden ocultar en el video.
-        
-        Returns:
-            Tuple[int, dict]: (capacidad_en_caracteres, info_video)
-        """
+        """Calcula capacidad aproximada considerando el cifrado."""
         cap = cv2.VideoCapture(video_path)
-        
         if not cap.isOpened():
             raise ValueError("No se pudo abrir el video")
         
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
+        fps = cap.get(cv2.CAP_PROP_FPS)
         cap.release()
         
-        # Calcular capacidad
+        # Usamos 1 bit por píxel (solo canal Azul) en el 80% de los frames
         pixels_per_frame = width * height
-        bits_per_frame = pixels_per_frame * 3  # 3 canales RGB
-        bytes_per_frame = bits_per_frame // 8
+        usable_frames = max(1, int(total_frames * 0.8)) 
         
-        # Reservar frames para overhead
-        usable_frames = max(0, total_frames - 5)
-        total_bytes = bytes_per_frame * usable_frames
+        # Capacidad total en bits
+        total_bits = pixels_per_frame * usable_frames
         
-        # Restar overhead de marcadores
-        overhead = len(self.MAGIC_MARKER) + len(self.MAGIC_END) + 100
-        usable_bytes = max(0, total_bytes - overhead)
-        
-        # Caracteres UTF-8 (aproximadamente 1-4 bytes por carácter, usamos 2 como promedio)
-        approx_chars = usable_bytes // 2
+        # El mensaje cifrado con Fernet es ~30% más largo que el original
+        # Convertir a caracteres (8 bits por char)
+        capacity_chars = (total_bits // 8) // 1.5
         
         info = {
             'total_frames': total_frames,
-            'usable_frames': usable_frames,
-            'fps': fps,
             'width': width,
             'height': height,
-            'duration_seconds': total_frames / fps if fps > 0 else 0,
-            'capacity_bytes': usable_bytes,
-            'capacity_chars': approx_chars
+            'fps': fps,
+            'capacity_chars': int(capacity_chars)
         }
-        
-        return approx_chars, info
-    
-    def hide_text_in_video(self, video_path: str, text: str, output_path: str,
+        return int(capacity_chars), info
+
+    def hide_text_in_video(self, video_path: str, text: str, password: str, output_path: str, 
                           progress_callback=None) -> Tuple[bool, str]:
-        """
-        Oculta texto en los frames de un video.
-        
-        Args:
-            video_path: Ruta del video original
-            text: Texto a ocultar
-            output_path: Ruta del video de salida
-            progress_callback: Función callback para reportar progreso (0-100)
-        
-        Returns:
-            Tuple[bool, str]: (éxito, mensaje)
-        """
+        """Oculta texto cifrado en los frames usando LSB."""
         try:
-            # TODO: Implementar lógica completa de ocultación de texto
-            # Por ahora, retorna un placeholder
-            return False, "⚠️ Funcionalidad en desarrollo. Próximamente disponible."
+            # 1. Cifrar el mensaje
+            encrypted_message = self._encrypt_message(text, password)
+            
+            # 2. Preparar el mensaje para incrustar
+            # Formato: MARKER + LENGTH(16 chars) + ENCRYPTED_DATA + END_MARKER
+            full_msg = f"{self.MAGIC_MARKER}{len(encrypted_message):016d}"
+            full_msg_bin = self._to_bin(full_msg)
+            encrypted_bin = self._to_bin(encrypted_message)
+            end_marker_bin = self._to_bin(self.MAGIC_END)
+            
+            bits = full_msg_bin + encrypted_bin + end_marker_bin
+            total_bits = len(bits)
+            bit_idx = 0
+            
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return False, "No se pudo abrir el video"
+                
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            # Lista de códecs en orden de preferencia (sin pérdida)
+            codec_options = [
+                ('FFV1', '.avi'),  # FFV1 - Lossless, mejor opción
+                ('XVID', '.avi'),  # Xvid - Muy compatible
+                ('MJPG', '.avi'),  # Motion JPEG
+            ]
+            
+            fourcc = None
+            video_created = False
+            codec_name = None
+            
+            # Intentar con cada códec hasta que uno funcione
+            for codec_name, recommended_ext in codec_options:
+                try:
+                    fourcc = cv2.VideoWriter_fourcc(*codec_name)
+                    
+                    # Ajustar extensión si es necesario
+                    output_test = output_path
+                    if not output_path.lower().endswith(recommended_ext):
+                        output_test = str(Path(output_path).with_suffix(recommended_ext))
+                    
+                    out = cv2.VideoWriter(output_test, fourcc, fps, (width, height))
+                    
+                    if out.isOpened():
+                        output_path = output_test  # Usar la ruta ajustada
+                        video_created = True
+                        break
+                    else:
+                        out.release()
+                except Exception as e:
+                    continue
+            
+            if not video_created:
+                cap.release()
+                return False, (
+                    "No se pudo crear el video de salida.\n\n"
+                    "Posibles soluciones:\n"
+                    "1. Usa la extensión .avi en lugar de .mp4\n"
+                    "2. Instala ffmpeg: pip install opencv-python-headless\n"
+                    "3. Verifica que el directorio de salida sea escribible"
+                )
+            
+            frame_count = 0
+            finished = False
+            
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Si aún hay bits por escribir
+                if not finished and bit_idx < total_bits:
+                    # Aplanamos el canal azul (índice 0) para iterar rápido
+                    blue_channel = frame[:, :, 0].flatten()
+                    
+                    # Cuántos bits caben en este frame
+                    bits_needed = total_bits - bit_idx
+                    bits_to_write = min(len(blue_channel), bits_needed)
+                    
+                    # Extraer los bits correspondientes del mensaje
+                    msg_bits_chunk = bits[bit_idx : bit_idx + bits_to_write]
+                    
+                    # Convertir chunk de bits a array de enteros (0 o 1)
+                    bits_array = np.array([int(b) for b in msg_bits_chunk], dtype=np.uint8)
+                    
+                    # Modificar LSB: (pixel & 254) | bit
+                    # 254 es 11111110 en binario (máscara para limpiar LSB)
+                    blue_channel[:bits_to_write] = (blue_channel[:bits_to_write] & 254) | bits_array
+                    
+                    # Restaurar forma original
+                    frame[:, :, 0] = blue_channel.reshape((height, width))
+                    
+                    bit_idx += bits_to_write
+                    if bit_idx >= total_bits:
+                        finished = True
+                
+                out.write(frame)
+                frame_count += 1
+                
+                if progress_callback and frame_count % 10 == 0:
+                    prog = int((frame_count / total_frames) * 100)
+                    progress_callback(prog)
+            
+            cap.release()
+            out.release()
+            
+            if not finished:
+                return False, "El video es demasiado corto para este mensaje."
+            
+            size_mb = os.path.getsize(output_path) / (1024 * 1024)
+            return True, (
+                f"✅ Mensaje oculto exitosamente.\n"
+                f"Guardado como: {Path(output_path).name}\n"
+                f"Tamaño: {size_mb:.2f} MB\n"
+                f"Cifrado: Fernet (AES-128)\n"
+                f"Códec: {codec_name}"
+            )
             
         except Exception as e:
             return False, f"Error: {str(e)}"
-    
-    def extract_text_from_video(self, video_path: str, progress_callback=None) -> Tuple[bool, str, str]:
-        """
-        Extrae texto oculto de un video.
-        
-        Returns:
-            Tuple[bool, str, str]: (éxito, mensaje, texto_extraído)
-        """
+
+    def extract_text_from_video(self, video_path: str, password: str, 
+                               progress_callback=None) -> Tuple[bool, str, str]:
+        """Extrae y descifra texto oculto LSB."""
         try:
-            # TODO: Implementar lógica completa de extracción
-            return False, "⚠️ Funcionalidad en desarrollo. Próximamente disponible.", ""
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return False, "No se pudo abrir el video", ""
+                
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            extracted_bits = ""
+            marker_len_bits = len(self._to_bin(self.MAGIC_MARKER))
+            
+            # Variables de estado
+            found_marker = False
+            msg_length = 0
+            frame_count = 0
+            
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Extraer LSB del canal azul
+                blue_channel = frame[:, :, 0].flatten()
+                
+                # Obtener solo el último bit: pixel & 1
+                lsb_bits = (blue_channel & 1)
+                
+                # Convertir a string de bits '0'/'1'
+                bits_str = "".join(lsb_bits.astype(str))
+                extracted_bits += bits_str
+                
+                # Lógica de procesamiento de flujo
+                # 1. Buscar marcador inicial
+                if not found_marker and len(extracted_bits) >= marker_len_bits + 128:
+                    try:
+                        # Chequeamos si encontramos el marcador
+                        temp_text = self._bin_to_str(extracted_bits[:marker_len_bits + 128])
+                        if self.MAGIC_MARKER in temp_text:
+                            found_marker = True
+                            # Recortar los bits hasta donde termina el marker
+                            marker_idx = temp_text.find(self.MAGIC_MARKER)
+                            bit_offset = (marker_idx + len(self.MAGIC_MARKER)) * 8
+                            extracted_bits = extracted_bits[bit_offset:]
+                    except:
+                        pass
+                            
+                # 2. Leer longitud (16 caracteres numéricos = 128 bits)
+                if found_marker and msg_length == 0:
+                    if len(extracted_bits) >= 128:
+                        length_bits = extracted_bits[:128]
+                        try:
+                            length_str = self._bin_to_str(length_bits)
+                            msg_length = int(length_str)
+                            extracted_bits = extracted_bits[128:]  # Remover bits de longitud
+                        except:
+                            cap.release()
+                            return False, "Error al leer la longitud del mensaje", ""
+
+                # 3. Leer el mensaje encriptado
+                if found_marker and msg_length > 0:
+                    needed_bits = msg_length * 8
+                    if len(extracted_bits) >= needed_bits:
+                        final_msg_bits = extracted_bits[:needed_bits]
+                        
+                        # Convertir bits a bytes
+                        encrypted_data = bytes([int(final_msg_bits[i:i+8], 2) 
+                                               for i in range(0, len(final_msg_bits), 8)])
+                        
+                        try:
+                            # Desencriptar con la contraseña
+                            secret_text = self._decrypt_message(encrypted_data, password)
+                            cap.release()
+                            return True, "✅ Mensaje recuperado y desencriptado con éxito", secret_text
+                        except Exception as decrypt_error:
+                            cap.release()
+                            return False, f"❌ Error al desencriptar: Contraseña incorrecta o mensaje corrupto", ""
+                
+                frame_count += 1
+                if progress_callback and frame_count % 10 == 0:
+                    prog = int((frame_count / total_frames) * 100)
+                    progress_callback(prog)
+            
+            cap.release()
+            return False, "⚠️ No se encontró mensaje oculto o video incompleto", ""
             
         except Exception as e:
-            return False, f"Error: {str(e)}", ""
+            return False, f"Error de extracción: {str(e)}", ""
