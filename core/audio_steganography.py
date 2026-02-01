@@ -36,6 +36,13 @@ class AudioStegano:
         """Extrae el audio del video a un WAV temporal."""
         temp_audio = self.temp_dir / "temp_extract.wav"
         
+        # Verificar si ffmpeg está accesible
+        try:
+            subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("ERROR: FFmpeg no está instalado o no se encuentra en el PATH.")
+            return None
+
         try:
             # Al tener FFmpeg en el PATH, llamamos directamente a "ffmpeg"
             cmd = [
@@ -46,8 +53,11 @@ class AudioStegano:
             # shell=True ayuda en Windows a encontrar el comando en el PATH
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, shell=True)
             return str(temp_audio)
+        except subprocess.CalledProcessError as e:
+            print(f"Error FFmpeg Extract (Código {e.returncode}): Verifique que el video no esté corrupto.")
+            return None
         except Exception as e:
-            print(f"Error FFmpeg Extract: {e}")
+            print(f"Error inesperado al extraer audio: {e}")
             return None
 
     def _merge_audio_to_video(self, video_path: str, audio_path: str, output_path: str) -> bool:
@@ -55,6 +65,13 @@ class AudioStegano:
         Une el audio modificado con el video original.
         CORRECCIÓN: Usa códecs SIN PÉRDIDA (Lossless) para que el mensaje no se borre.
         """
+        # Verificar si ffmpeg está accesible
+        try:
+            subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("ERROR: FFmpeg no está instalado para la unión de video.")
+            return False
+
         try:
             # Determinamos el códec de audio según el contenedor de video
             ext = os.path.splitext(output_path)[1].lower()
@@ -82,7 +99,7 @@ class AudioStegano:
             ]
             
             # Ejecutamos el comando
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
             
             if result.returncode != 0:
                 print("❌ ERROR FFMPEG MERGE:")

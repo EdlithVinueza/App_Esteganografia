@@ -75,6 +75,7 @@ venv\Scripts\python.exe -m pip list
 # - numpy
 # - ffmpeg-python
 # - cryptography
+# - static-ffmpeg
 
 
 ================================================================================
@@ -107,6 +108,7 @@ venv\Scripts\python.exe -m pip install Pillow
 venv\Scripts\python.exe -m pip install numpy
 venv\Scripts\python.exe -m pip install ffmpeg-python
 venv\Scripts\python.exe -m pip install cryptography
+venv\Scripts\python.exe -m pip install static-ffmpeg
 
 
 ================================================================================

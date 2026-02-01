@@ -135,22 +135,23 @@ venv\Scripts\python.exe -m pip install cryptography
 
 ---
 
-### Error: "No se pudo abrir el video"
+### Error: "No se pudo abrir el video" o errores de FFmpeg
 
 **Causas posibles**:
-- El video está corrupto
-- Formato no soportado
-- Falta FFmpeg en el sistema
+- El video está corrupto o el formato no es compatible.
+- Falta FFmpeg en el sistema o no está en el PATH.
 
-**Solución**:
+**Solución Automática (Recomendada)**:
+La aplicación ahora incluye `static-ffmpeg` para autogestionar la presencia de FFmpeg. Solo asegúrate de tener las dependencias actualizadas:
 ```bash
-# Instalar FFmpeg
-# Windows: Descargar desde https://ffmpeg.org/download.html
-# Agregar al PATH del sistema
-
-# Verificar instalación
-ffmpeg -version
+venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+**Solución Manual**:
+Si la solución automática falla, puedes instalar FFmpeg manualmente:
+1. Descargar desde [ffmpeg.org](https://ffmpeg.org/download.html).
+2. Extraer y agregar la carpeta `bin` al PATH del sistema.
+3. Verificar con `ffmpeg -version` en una nueva terminal.
 
 ---
 

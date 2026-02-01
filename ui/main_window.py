@@ -38,6 +38,17 @@ class MainWindow(ctk.CTk):
         }
         
         self.setup_ui()
+        self.center_window(1200, 800)
+    
+    def center_window(self, width, height):
+        """Centra la ventana en la pantalla."""
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        
+        self.geometry(f'{width}x{height}+{x}+{y}')
     
     def setup_ui(self):
         """Configura la interfaz de usuario."""

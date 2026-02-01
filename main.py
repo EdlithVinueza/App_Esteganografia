@@ -15,6 +15,13 @@ import os
 # Agregar el directorio actual al path para imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Intentar cargar static-ffmpeg para asegurar disponibilidad de FFmpeg
+try:
+    from static_ffmpeg import add_paths
+    add_paths()
+except ImportError:
+    pass
+
 from ui.main_window import run_app
 
 
