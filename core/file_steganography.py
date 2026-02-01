@@ -1,18 +1,18 @@
 """
-Módulo para ocultar archivos completos dentro de videos usando esteganografía LSB.
-Permite incrustar cualquier tipo de archivo en los frames del video.
+Módulo para ocultar archivos completos dentro de videos usando inyección EOF (End Of File).
+Permite incrustar cualquier tipo de archivo en el contenedor del video sin modificar los frames es decir sin recodificar.
 """
 
 import cv2
 import numpy as np
 import os
 import json
+import shutil
 from typing import Tuple, Optional
 from pathlib import Path
 
-
 class FileStegano:
-    """Clase para manejar la esteganografía de archivos en videos."""
+    """Clase para manejar la esteganografía de archivos en videos mediante inyección EOF."""
     
     # Formatos de archivo soportados (puedes agregar más)
     SUPPORTED_FORMATS = {
@@ -25,8 +25,7 @@ class FileStegano:
         'other': ['.json', '.xml', '.csv', '.sql', '.db']
     }
     
-    MAGIC_MARKER = b'STEG_FILE_START'  # Marcador para identificar inicio de archivo
-    MAGIC_END = b'STEG_FILE_END'      # Marcador para identificar fin de archivo
+    MAGIC_MARKER = b'STEG_EOF_START'  # Marcador para identificar inicio de archivo oculto
     
     def __init__(self):
         self.temp_dir = Path("temp")
@@ -66,7 +65,9 @@ class FileStegano:
     
     def calculate_video_capacity(self, video_path: str) -> Tuple[int, dict]:
         """
-        Calcula la capacidad de almacenamiento del video en bytes.
+        Calcula la capacidad de almacenamiento del video.
+        En el método EOF, la capacidad es teóricamente ilimitada, 
+        limitada solo por el sistema de archivos, pero devolvemos datos para la UI.
         
         Returns:
             Tuple[int, dict]: (capacidad_en_bytes, info_video)
@@ -74,48 +75,38 @@ class FileStegano:
         cap = cv2.VideoCapture(video_path)
         
         if not cap.isOpened():
-            raise ValueError("No se pudo abrir el video")
+            # Si no se puede abrir con OpenCV, intentamos devolver datos básicos
+            # O lanzamos error si es crítico. Asumiremos video válido para operaciones de archivo.
+             raise ValueError("No se pudo abrir el video para leer metadata")
         
-        # Obtener información del video
+        # Obtener información del video (solo para mostrar en UI)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        # Leer un frame para obtener información
-        ret, frame = cap.read()
         cap.release()
         
-        if not ret:
-            raise ValueError("No se pudo leer el video")
+        # En EOF, la capacidad no depende de los pixels. 
+        # Ponemos un número muy grande arbitrario o el espacio libre en disco.
+        # Por simplicidad, usamos un valor "virtualmente infinito" para la UI (e.j. 100 GB).
+        usable_capacity = 100 * 1024 * 1024 * 1024  # 100 GB
         
-        # Calcular capacidad
-        # Usamos 1 bit por canal de color (RGB) = 3 bits por pixel
-        # Dividimos entre 8 para obtener bytes
-        pixels_per_frame = width * height
-        bits_per_frame = pixels_per_frame * 3  # 3 canales (BGR)
-        bytes_per_frame = bits_per_frame // 8
-        
-        # Reservamos algunos frames para metadata (10 frames)
-        usable_frames = max(0, total_frames - 10)
-        total_capacity = bytes_per_frame * usable_frames
-        
-        # Restamos el espacio para marcadores y metadata
-        overhead = len(self.MAGIC_MARKER) + len(self.MAGIC_END) + 1024  # 1KB para metadata
-        usable_capacity = max(0, total_capacity - overhead)
+        # Algunos reproductores pueden tener problemas con archivos > 4GB si son MP4 antiguos,
+        # pero para propósitos de steganografía moderna, es razonable.
         
         info = {
             'total_frames': total_frames,
-            'usable_frames': usable_frames,
+            'usable_frames': total_frames, # Irrelevante para EOF
             'fps': fps,
             'width': width,
             'height': height,
             'duration_seconds': total_frames / fps if fps > 0 else 0,
-            'pixels_per_frame': pixels_per_frame,
-            'bytes_per_frame': bytes_per_frame,
-            'total_capacity_bytes': total_capacity,
+            'pixels_per_frame': width * height,
+            'bytes_per_frame': 0, # Irrelevante
+            'total_capacity_bytes': usable_capacity,
             'usable_capacity_bytes': usable_capacity,
-            'total_capacity_mb': total_capacity / (1024 * 1024),
+            'total_capacity_mb': usable_capacity / (1024 * 1024),
             'usable_capacity_mb': usable_capacity / (1024 * 1024)
         }
         
@@ -137,8 +128,8 @@ class FileStegano:
         file_size = os.path.getsize(file_path)
         capacity, video_info = self.calculate_video_capacity(video_path)
         
-        # Calcular porcentaje de uso
-        usage_percent = (file_size / capacity * 100) if capacity > 0 else 100
+        # Calcular porcentaje de uso (simbólico, ya que capacity es ficticio)
+        usage_percent = (file_size / capacity * 100) if capacity > 0 else 0.1
         
         info = {
             **video_info,
@@ -149,72 +140,18 @@ class FileStegano:
             'remaining_mb': (capacity - file_size) / (1024 * 1024)
         }
         
-        if file_size > capacity:
-            msg = (f"❌ El archivo es demasiado grande!\n\n"
-                   f"Tamaño del archivo: {file_size / (1024*1024):.2f} MB\n"
-                   f"Capacidad del video: {capacity / (1024*1024):.2f} MB\n"
-                   f"Exceso: {(file_size - capacity) / (1024*1024):.2f} MB\n\n"
-                   f"💡 Sugerencia: Usa un video más largo o comprime el archivo.")
-            return False, msg, info
-        
-        msg = (f"✅ El archivo cabe perfectamente!\n\n"
+        msg = (f"✅ El archivo se puede inyectar (EOF).\n\n"
                f"📁 Archivo: {file_size / (1024*1024):.2f} MB\n"
-               f"🎥 Capacidad: {capacity / (1024*1024):.2f} MB\n"
-               f"📊 Uso: {usage_percent:.1f}%\n"
-               f"💾 Espacio restante: {(capacity - file_size) / (1024*1024):.2f} MB")
+               f"ℹ️ Método: Inyección en contenedor (No modifica frames)\n"
+               f"El video resultante será reproducible, pero el archivo oculto\n"
+               f"se perderá si el video es convertido o re-comprimido.")
         
         return True, msg, info
-    
-    def _int_to_bytes(self, value: int, length: int = 4) -> bytes:
-        """Convierte un entero a bytes."""
-        return value.to_bytes(length, byteorder='big')
-    
-    def _bytes_to_int(self, data: bytes) -> int:
-        """Convierte bytes a entero."""
-        return int.from_bytes(data, byteorder='big')
-    
-    def _embed_bits_in_frame(self, frame: np.ndarray, data_bits: str, start_bit: int) -> Tuple[np.ndarray, int]:
-        """
-        Incrusta bits en un frame usando LSB.
-        
-        Returns:
-            Tuple[np.ndarray, int]: (frame_modificado, bits_escritos)
-        """
-        height, width, channels = frame.shape
-        max_bits = height * width * channels
-        
-        bits_to_write = min(len(data_bits) - start_bit, max_bits)
-        if bits_to_write <= 0:
-            return frame, 0
-        
-        # Aplanar el frame
-        flat_frame = frame.flatten()
-        
-        # Incrustar bits
-        for i in range(bits_to_write):
-            bit = int(data_bits[start_bit + i])
-            # Modificar el LSB
-            flat_frame[i] = (flat_frame[i] & 0xFE) | bit
-        
-        # Restaurar forma original
-        modified_frame = flat_frame.reshape(frame.shape)
-        
-        return modified_frame, bits_to_write
-    
-    def _extract_bits_from_frame(self, frame: np.ndarray, num_bits: int) -> str:
-        """Extrae bits de un frame."""
-        flat_frame = frame.flatten()
-        bits = ''
-        
-        for i in range(min(num_bits, len(flat_frame))):
-            bits += str(flat_frame[i] & 1)
-        
-        return bits
     
     def hide_file_in_video(self, video_path: str, file_path: str, output_path: str, 
                           progress_callback=None) -> Tuple[bool, str]:
         """
-        Oculta un archivo completo dentro de un video.
+        Oculta un archivo completo dentro de un video usando inyección EOF.
         
         Args:
             video_path: Ruta del video original
@@ -226,91 +163,69 @@ class FileStegano:
             Tuple[bool, str]: (éxito, mensaje)
         """
         try:
-            # Verificar si el archivo cabe
-            can_hide, msg, info = self.can_hide_file(video_path, file_path)
-            if not can_hide:
-                return False, msg
+            if progress_callback:
+                progress_callback(10)
             
             # Leer el archivo a ocultar
             with open(file_path, 'rb') as f:
                 file_data = f.read()
             
+            if progress_callback:
+                progress_callback(30)
+                
             # Crear metadata
             metadata = {
                 'filename': os.path.basename(file_path),
                 'filesize': len(file_data),
-                'extension': Path(file_path).suffix
+                'extension': Path(file_path).suffix,
+                'method': 'EOF'
             }
             metadata_json = json.dumps(metadata).encode('utf-8')
             
-            # Construir el payload completo
-            # Formato: MAGIC_MARKER + tamaño_metadata(4 bytes) + metadata + tamaño_archivo(4 bytes) + archivo + MAGIC_END
+            # Convertir longitudes a bytes (4 bytes big endian)
+            metadata_len_bytes = len(metadata_json).to_bytes(4, byteorder='big')
+            
+            # Construir el payload a inyectar al final
+            # Payload = MAGIC_MARKER + metadata_len(4) + metadata + file_data
+            # Al extraer, buscaremos MAGIC_MARKER de atrás hacia adelante o
+            # simplemente concatenamos en un orden conocido.
+            
+            # Diseño simple para lectura secuencial inversa o búsqueda:
+            # VideoOriginal + [MAGIC_MARKER + MetadataLength + Metadata + SecretFile]
+            
+            # Mejor diseño para robustez: 
+            # VideoOriginal + SecretFile + Metadata + MetadataLength + MAGIC_MARKER
+            # Así podemos leer los últimos bytes para saber si hay algo oculto.
+            
             payload = (
-                self.MAGIC_MARKER +
-                self._int_to_bytes(len(metadata_json)) +
-                metadata_json +
-                self._int_to_bytes(len(file_data)) +
                 file_data +
-                self.MAGIC_END
+                metadata_json +
+                metadata_len_bytes + 
+                self.MAGIC_MARKER 
             )
             
-            # Convertir payload a bits
-            payload_bits = ''.join(format(byte, '08b') for byte in payload)
-            total_bits = len(payload_bits)
+            if progress_callback:
+                progress_callback(50)
             
-            # Abrir video
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                return False, "No se pudo abrir el video"
+            # Copiar el video original al destino primero (o leer y escribir)
+            shutil.copy2(video_path, output_path)
             
-            # Obtener propiedades del video
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Crear video de salida
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            
-            bits_written = 0
-            frame_count = 0
-            
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            if progress_callback:
+                progress_callback(70)
                 
-                # Si aún hay bits por escribir, incrustarlos
-                if bits_written < total_bits:
-                    modified_frame, written = self._embed_bits_in_frame(
-                        frame, payload_bits, bits_written
-                    )
-                    bits_written += written
-                    out.write(modified_frame)
-                else:
-                    # Escribir frames sin modificar
-                    out.write(frame)
+            # Añadir el payload al final del archivo copiado
+            with open(output_path, 'ab') as f_out:
+                f_out.write(payload)
                 
-                frame_count += 1
-                
-                # Reportar progreso
-                if progress_callback:
-                    progress = int((frame_count / total_frames) * 100)
-                    progress_callback(progress)
-            
-            cap.release()
-            out.release()
-            
-            if bits_written < total_bits:
-                return False, f"No se pudieron escribir todos los bits. Escritos: {bits_written}/{total_bits}"
+            if progress_callback:
+                progress_callback(100)
             
             success_msg = (
-                f"✅ ¡Archivo ocultado exitosamente!\n\n"
+                f"✅ ¡Archivo ocultado exitosamente (EOF)!\n\n"
                 f"📁 Archivo: {metadata['filename']}\n"
                 f"📦 Tamaño: {len(file_data) / 1024:.2f} KB\n"
-                f"🎥 Frames procesados: {frame_count}\n"
-                f"💾 Video guardado en: {output_path}"
+                f"💾 Video guardado en: {output_path}\n\n"
+                f"⚠️ ADVERTENCIA: No conviertas ni comprimas este video, o perderás el archivo."
             )
             
             return True, success_msg
@@ -321,7 +236,7 @@ class FileStegano:
     def extract_file_from_video(self, video_path: str, output_dir: str, 
                                progress_callback=None) -> Tuple[bool, str, Optional[str]]:
         """
-        Extrae un archivo oculto de un video.
+        Extrae un archivo oculto del final de un video (EOF).
         
         Args:
             video_path: Ruta del video con archivo oculto
@@ -332,155 +247,105 @@ class FileStegano:
             Tuple[bool, str, Optional[str]]: (éxito, mensaje, ruta_archivo_extraído)
         """
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                return False, "No se pudo abrir el video", None
-            
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Extraer bits de los frames
-            all_bits = ''
-            frame_count = 0
-            
-            # Primero, necesitamos encontrar el marcador de inicio
-            marker_bits = ''.join(format(byte, '08b') for byte in self.MAGIC_MARKER)
-            marker_length = len(marker_bits)
-            
-            # Leer suficientes frames para encontrar el marcador y metadata
-            while frame_count < min(50, total_frames):  # Leer máximo 50 frames iniciales
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            if progress_callback:
+                progress_callback(10)
                 
-                frame_bits = self._extract_bits_from_frame(frame, frame.size)
-                all_bits += frame_bits
-                frame_count += 1
+            file_size = os.path.getsize(video_path)
+            
+            with open(video_path, 'rb') as f:
+                # 1. Buscar el MAGIC_MARKER al final del archivo
+                marker_len = len(self.MAGIC_MARKER)
+                f.seek(-marker_len, 2) # Ir al final menos la longitud del marcador
+                read_marker = f.read(marker_len)
+                
+                if read_marker != self.MAGIC_MARKER:
+                     return False, "No se encontró el marcador de archivo oculto (EOF) en este video.", None
                 
                 if progress_callback:
-                    progress_callback(int((frame_count / total_frames) * 50))
-            
-            # Buscar marcador de inicio
-            marker_pos = all_bits.find(marker_bits)
-            if marker_pos == -1:
-                cap.release()
-                return False, "No se encontró archivo oculto en el video", None
-            
-            # Extraer tamaño de metadata (4 bytes = 32 bits)
-            pos = marker_pos + marker_length
-            metadata_size_bits = all_bits[pos:pos + 32]
-            if len(metadata_size_bits) < 32:
-                # Necesitamos más frames
-                while frame_count < total_frames and len(all_bits) < pos + 32:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    frame_bits = self._extract_bits_from_frame(frame, frame.size)
-                    all_bits += frame_bits
-                    frame_count += 1
+                    progress_callback(30)
                 
-                metadata_size_bits = all_bits[pos:pos + 32]
-            
-            metadata_size = self._bytes_to_int(
-                int(metadata_size_bits, 2).to_bytes(4, byteorder='big')
-            )
-            
-            # Extraer metadata
-            pos += 32
-            metadata_bits = all_bits[pos:pos + (metadata_size * 8)]
-            
-            # Leer más frames si es necesario
-            while len(metadata_bits) < metadata_size * 8 and frame_count < total_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame_bits = self._extract_bits_from_frame(frame, frame.size)
-                all_bits += frame_bits
-                frame_count += 1
-                metadata_bits = all_bits[pos:pos + (metadata_size * 8)]
-            
-            metadata_bytes = int(metadata_bits, 2).to_bytes(metadata_size, byteorder='big')
-            metadata = json.loads(metadata_bytes.decode('utf-8'))
-            
-            # Extraer tamaño del archivo
-            pos += metadata_size * 8
-            file_size_bits = all_bits[pos:pos + 32]
-            
-            while len(file_size_bits) < 32 and frame_count < total_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame_bits = self._extract_bits_from_frame(frame, frame.size)
-                all_bits += frame_bits
-                frame_count += 1
-                file_size_bits = all_bits[pos:pos + 32]
-            
-            file_size = self._bytes_to_int(
-                int(file_size_bits, 2).to_bytes(4, byteorder='big')
-            )
-            
-            # Extraer archivo
-            pos += 32
-            file_bits_needed = file_size * 8
-            
-            # Leer frames hasta tener todos los bits del archivo
-            while len(all_bits) < pos + file_bits_needed and frame_count < total_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame_bits = self._extract_bits_from_frame(frame, frame.size)
-                all_bits += frame_bits
-                frame_count += 1
+                # 2. Leer la longitud de la metadata
+                # La estructura es: ... + Metadata + MetadataLength(4) + MAGIC_MARKER
+                # Entonces debemos retroceder: MarkerLen + 4 bytes
+                
+                seek_offset = marker_len + 4
+                if file_size < seek_offset:
+                    return False, "Archivo corrupto o demasiado pequeño.", None
+                    
+                f.seek(-seek_offset, 2)
+                metadata_len_bytes = f.read(4)
+                metadata_len = int.from_bytes(metadata_len_bytes, byteorder='big')
                 
                 if progress_callback:
-                    progress = 50 + int((frame_count / total_frames) * 50)
-                    progress_callback(progress)
-            
-            cap.release()
-            
-            file_bits = all_bits[pos:pos + file_bits_needed]
-            
-            if len(file_bits) < file_bits_needed:
-                return False, "No se pudieron extraer todos los datos del archivo", None
-            
-            # Convertir bits a bytes
-            file_bytes = bytearray()
-            for i in range(0, len(file_bits), 8):
-                byte_bits = file_bits[i:i+8]
-                if len(byte_bits) == 8:
-                    file_bytes.append(int(byte_bits, 2))
-            
-            # Guardar archivo
-            output_path = os.path.join(output_dir, metadata['filename'])
-            
-            # Si el archivo ya existe, agregar número
-            base_name = Path(metadata['filename']).stem
-            extension = Path(metadata['filename']).suffix
-            counter = 1
-            while os.path.exists(output_path):
-                output_path = os.path.join(output_dir, f"{base_name}_{counter}{extension}")
-                counter += 1
-            
-            with open(output_path, 'wb') as f:
-                f.write(file_bytes)
-            
-            success_msg = (
-                f"✅ ¡Archivo extraído exitosamente!\n\n"
-                f"📁 Archivo: {metadata['filename']}\n"
-                f"📦 Tamaño: {file_size / 1024:.2f} KB\n"
-                f"💾 Guardado en: {output_path}"
-            )
-            
-            return True, success_msg, output_path
-            
+                    progress_callback(50)
+                
+                # 3. Leer la metadata
+                # Retroceder: MarkerLen + 4 + MetadataLen
+                seek_offset += metadata_len
+                if file_size < seek_offset:
+                    return False, "Metadata corrupta.", None
+                
+                f.seek(-seek_offset, 2)
+                metadata_bytes = f.read(metadata_len)
+                try:
+                    metadata = json.loads(metadata_bytes.decode('utf-8'))
+                except json.JSONDecodeError:
+                    return False, "Error al decodificar la metadata.", None
+                
+                filename = metadata.get('filename', 'extracted_file')
+                hidden_file_size = metadata.get('filesize', 0)
+                
+                if hidden_file_size <= 0:
+                     return False, "Tamaño de archivo inválido en metadata.", None
+
+                if progress_callback:
+                    progress_callback(70)
+
+                # 4. Leer el archivo oculto
+                # Retroceder: MarkerLen + 4 + MetadataLen + FileSize
+                seek_offset += hidden_file_size
+                if file_size < seek_offset:
+                     return False, "El archivo parece estar truncado.", None
+                
+                f.seek(-seek_offset, 2)
+                file_data = f.read(hidden_file_size)
+                
+                # Guardar el archivo extraído
+                output_path = os.path.join(output_dir, filename)
+                
+                # Si el archivo ya existe, agregar número para no sobrescribir
+                base_name = Path(filename).stem
+                extension = Path(filename).suffix
+                counter = 1
+                while os.path.exists(output_path):
+                    output_path = os.path.join(output_dir, f"{base_name}_{counter}{extension}")
+                    counter += 1
+                
+                if progress_callback:
+                    progress_callback(90)
+                    
+                with open(output_path, 'wb') as f_out:
+                    f_out.write(file_data)
+                
+                if progress_callback:
+                    progress_callback(100)
+                
+                success_msg = (
+                    f"✅ ¡Archivo extraído exitosamente!\n\n"
+                    f"📁 Archivo: {filename}\n"
+                    f"📦 Tamaño: {hidden_file_size / 1024:.2f} KB\n"
+                    f"💾 Guardado en: {output_path}"
+                )
+                
+                return True, success_msg, output_path
+
         except Exception as e:
-            if 'cap' in locals():
-                cap.release()
             return False, f"Error al extraer archivo: {str(e)}", None
-    
+
     def get_supported_formats_text(self) -> str:
         """Retorna un texto formateado con los formatos soportados."""
         text = "📋 Formatos de archivo soportados:\n\n"
         for category, extensions in self.SUPPORTED_FORMATS.items():
             text += f"• {category.upper()}: {', '.join(extensions)}\n"
-        text += "\n💡 También puedes intentar con otros formatos no listados."
+        text += "\n💡 En modo EOF, prácticamente cualquier archivo binario es soportado."
         return text
