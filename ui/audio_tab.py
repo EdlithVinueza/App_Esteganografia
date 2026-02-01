@@ -4,114 +4,141 @@ Estructura base preparada para desarrollo futuro.
 """
 
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
+import os
 from core.audio_steganography import AudioStegano
 
-
 class AudioTab:
-    """Pestaña para ocultar texto en audio de video."""
+    """Pestaña para esteganografía en VIDEO y AUDIO."""
     
     def __init__(self, parent, colors):
         self.parent = parent
         self.colors = colors
         self.stegano = AudioStegano()
-        
+        self.selected_file = None
         self.setup_ui()
     
     def setup_ui(self):
-        """Configura la interfaz de usuario."""
+        self.main_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
+        self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # Frame principal con padding
-        main_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        # --- HEADER ---
+        header = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 20))
         
-        # Título
-        title = ctk.CTkLabel(
-            main_frame,
-            text="🔊 Ocultar Mensaje en Audio",
-            font=ctk.CTkFont(size=24, weight="bold"),
-            text_color=self.colors['text']
+        ctk.CTkLabel(header, text="🎬 Video & Audio Steganography", 
+                     font=ctk.CTkFont(size=24, weight="bold"), text_color=self.colors['text']).pack(anchor="w")
+        
+        ctk.CTkLabel(header, text="Oculta mensajes en el audio de tus videos (.mp4) o archivos de sonido (.wav).",
+                     text_color=self.colors['text_secondary']).pack(anchor="w")
+
+        # --- SELECCIÓN ---
+        file_frame = ctk.CTkFrame(self.main_frame, fg_color=self.colors['bg_light'])
+        file_frame.pack(fill="x", pady=(0, 20))
+        
+        ctk.CTkLabel(file_frame, text="Archivo Multimedia:", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        
+        input_box = ctk.CTkFrame(file_frame, fg_color="transparent")
+        input_box.pack(fill="x", padx=15, pady=(0, 15))
+        
+        self.file_entry = ctk.CTkEntry(input_box, placeholder_text="Selecciona video (.mp4) o audio (.wav)...")
+        self.file_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        # BOTÓN BUSCAR
+        ctk.CTkButton(input_box, text="📂 Buscar", width=100, command=self.select_file,
+                      fg_color=self.colors['primary']).pack(side="right")
+
+        # --- TABS ---
+        self.tab_view = ctk.CTkTabview(self.main_frame)
+        self.tab_view.pack(fill="both", expand=True)
+        self.tab_view.add("Ocultar")
+        self.tab_view.add("Revelar")
+        
+        # Tab Ocultar
+        hide_tab = self.tab_view.tab("Ocultar")
+        ctk.CTkLabel(hide_tab, text="Mensaje Secreto:", anchor="w").pack(fill="x", pady=5)
+        self.msg_input = ctk.CTkTextbox(hide_tab, height=100)
+        self.msg_input.pack(fill="both", expand=True, pady=5)
+        
+        ctk.CTkButton(hide_tab, text="🔒 Procesar y Guardar", command=self.run_hide,
+                      fg_color=self.colors['accent'], height=40).pack(fill="x", pady=10)
+
+        # Tab Revelar
+        reveal_tab = self.tab_view.tab("Revelar")
+        ctk.CTkLabel(reveal_tab, text="Mensaje Encontrado:", anchor="w").pack(fill="x", pady=5)
+        self.msg_output = ctk.CTkTextbox(reveal_tab, height=100, state="disabled")
+        self.msg_output.pack(fill="both", expand=True, pady=5)
+        
+        ctk.CTkButton(reveal_tab, text="🔓 Analizar Archivo", command=self.run_extract,
+                      fg_color=self.colors['success'], height=40).pack(fill="x", pady=10)
+
+        # --- STATUS ---
+        self.status_bar = ctk.CTkProgressBar(self.main_frame)
+        self.status_bar.pack(fill="x", pady=(10, 5))
+        self.status_bar.set(0)
+        self.status_lbl = ctk.CTkLabel(self.main_frame, text="Listo")
+        self.status_lbl.pack(anchor="e")
+
+    def select_file(self):
+        # AHORA ACEPTA VIDEO Y AUDIO
+        filename = filedialog.askopenfilename(
+            title="Seleccionar Archivo",
+            filetypes=[
+                ("Video y Audio", "*.mp4 *.avi *.wav"),
+                ("Video MP4", "*.mp4"),
+                ("Audio WAV", "*.wav")
+            ]
         )
-        title.pack(anchor="w", pady=(0, 10))
-        
-        # Descripción
-        desc = ctk.CTkLabel(
-            main_frame,
-            text="Oculta mensajes de texto en la pista de audio del video usando esteganografía LSB.\n"
-                 "El mensaje quedará inaudible pero podrá ser recuperado del audio posteriormente.",
-            font=ctk.CTkFont(size=13),
-            text_color=self.colors['text_secondary'],
-            justify="left"
+        if filename:
+            self.selected_file = filename
+            self.file_entry.delete(0, "end")
+            self.file_entry.insert(0, filename)
+            self.status_lbl.configure(text=f"Cargado: {os.path.basename(filename)}")
+            self.status_bar.set(0)
+
+    def update_prog(self, val):
+        self.status_bar.set(val/100)
+        self.parent.update_idletasks()
+
+    def run_hide(self):
+        if not self.selected_file: return
+        msg = self.msg_input.get("1.0", "end-1c").strip()
+        if not msg: return messagebox.showwarning("Error", "Escribe un mensaje")
+
+        # Detectar extensión para guardar con la misma
+        _, ext = os.path.splitext(self.selected_file)
+        save_path = filedialog.asksaveasfilename(
+            title="Guardar Resultado",
+            defaultextension=ext,
+            filetypes=[("Mismo formato", f"*{ext}")]
         )
-        desc.pack(anchor="w", pady=(0, 20))
+        if not save_path: return
+
+        self.status_lbl.configure(text="Procesando... Espere...")
+        self.parent.after(100, lambda: self._exec_hide(msg, save_path))
+
+    def _exec_hide(self, msg, path):
+        ok, info = self.stegano.hide_text_in_audio(self.selected_file, msg, path, self.update_prog)
+        self.status_lbl.configure(text=info if ok else "Error")
+        self.status_bar.set(1 if ok else 0)
+        if ok: messagebox.showinfo("Éxito", f"Archivo guardado en:\n{path}")
+        else: messagebox.showerror("Error", info)
+
+    def run_extract(self):
+        if not self.selected_file: return
+        self.status_lbl.configure(text="Analizando...")
+        self.status_bar.set(0.5)
+        self.parent.after(100, self._exec_extract)
+
+    def _exec_extract(self):
+        ok, info, text = self.stegano.extract_text_from_audio(self.selected_file)
+        self.status_bar.set(1)
+        self.status_lbl.configure(text=info)
         
-        # Frame de contenido
-        content_frame = ctk.CTkFrame(main_frame, fg_color=self.colors['bg_light'], 
-                                    corner_radius=15)
-        content_frame.pack(fill="both", expand=True)
+        self.msg_output.configure(state="normal")
+        self.msg_output.delete("1.0", "end")
+        self.msg_output.insert("1.0", text if ok else f"--- {info} ---")
+        self.msg_output.configure(state="disabled")
         
-        content = ctk.CTkFrame(content_frame, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=40, pady=40)
-        
-        # Icono y mensaje
-        icon_label = ctk.CTkLabel(
-            content,
-            text="🚧",
-            font=ctk.CTkFont(size=80)
-        )
-        icon_label.pack(pady=(20, 20))
-        
-        status_label = ctk.CTkLabel(
-            content,
-            text="Funcionalidad en Desarrollo",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=self.colors['warning']
-        )
-        status_label.pack(pady=(0, 15))
-        
-        info_label = ctk.CTkLabel(
-            content,
-            text="Esta funcionalidad estará disponible próximamente.\n\n"
-                 "Permitirá:\n"
-                 "• Ocultar mensajes en la pista de audio del video\n"
-                 "• Extraer mensajes del audio de videos procesados\n"
-                 "• Análisis de capacidad del audio\n"
-                 "• Soporte para videos con y sin audio\n"
-                 "• Opción de encriptación del mensaje\n\n"
-                 "Por ahora, puedes usar la pestaña 'Ocultar por Archivo' que está completamente funcional.",
-            font=ctk.CTkFont(size=13),
-            text_color=self.colors['text_secondary'],
-            justify="center"
-        )
-        info_label.pack(pady=(0, 30))
-        
-        # Botón de información
-        info_btn = ctk.CTkButton(
-            content,
-            text="ℹ️ Más Información",
-            command=self.show_info,
-            fg_color=self.colors['accent'],
-            hover_color=self.colors['secondary'],
-            height=45,
-            font=ctk.CTkFont(size=14, weight="bold")
-        )
-        info_btn.pack()
-    
-    def show_info(self):
-        """Muestra información sobre la funcionalidad."""
-        info_text = (
-            "🔜 Próximamente: Ocultar Texto en Audio\n\n"
-            "Esta funcionalidad permitirá ocultar mensajes de texto en la pista "
-            "de audio del video usando el método LSB en las muestras de audio.\n\n"
-            "Características planificadas:\n"
-            "• Ocultar mensajes en archivos WAV sin compresión\n"
-            "• Extracción automática usando FFmpeg\n"
-            "• Detección automática de audio en el video\n"
-            "• Análisis de capacidad del audio\n"
-            "• Encriptación AES opcional\n"
-            "• Soporte para múltiples canales de audio\n\n"
-            "Mientras tanto, la pestaña 'Ocultar por Archivo' está completamente "
-            "funcional y puede usarse para ocultar cualquier tipo de archivo, "
-            "incluyendo archivos de audio."
-        )
-        messagebox.showinfo("Información", info_text)
+        if ok: messagebox.showinfo("Encontrado", "¡Mensaje secreto detectado!")
+        else: messagebox.showwarning("Resultado", info)
