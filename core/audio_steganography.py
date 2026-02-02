@@ -260,13 +260,25 @@ class AudioStegano:
             if start_idx != -1:
                 end_idx = full_data.find(self.MAGIC_END, start_idx)
                 if end_idx != -1:
-                    secret = full_data[start_idx+len(self.MAGIC_MARKER):end_idx].decode('utf-8')
-                    if temp_wav and os.path.exists(temp_wav): os.remove(temp_wav)
-                    return True, "Mensaje encontrado.", secret
+                    payload_start = start_idx + len(self.MAGIC_MARKER)
+                    secret_bytes = full_data[payload_start:end_idx]
+                    
+                    try:
+                        # --- CAMBIO AQUÍ ---
+                        # Usamos errors='replace' para que si un bit falló, 
+                        # el programa no explote y muestre el resto del texto.
+                        secret_text = secret_bytes.decode('utf-8', errors='replace')
+                        
+                        if temp_wav and os.path.exists(temp_wav): os.remove(temp_wav)
+                        return True, "Mensaje encontrado.", secret_text
+                        
+                    except Exception as e:
+                        # Esto es por si pasa algo muy raro, pero con 'replace' ya no debería entrar aquí
+                        return False, f"Datos encontrados pero corruptos: {e}", ""
             
             if temp_wav and os.path.exists(temp_wav): os.remove(temp_wav)
             return False, "No se encontró mensaje oculto.", ""
-            
+
         except Exception as e:
             if temp_wav and os.path.exists(temp_wav): os.remove(temp_wav)
-            return False, f"Error lectura: {e}", ""
+            return False, f"Error extracción: {e}", ""
