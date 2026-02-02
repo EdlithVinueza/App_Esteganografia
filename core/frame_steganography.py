@@ -10,6 +10,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 import hashlib
 import base64
+import subprocess
 
 class FrameStegano:
     """Clase para manejar la esteganografía de texto en frames de video con cifrado."""
@@ -101,6 +102,51 @@ class FrameStegano:
             'capacity_chars': int(capacity_chars)
         }
         return int(capacity_chars), info
+    
+    
+    def _extract_audio_from_video(self, video_path: str) -> str:
+        """Extrae el audio del video original usando FFmpeg."""
+        temp_audio = self.temp_dir / "temp_original_audio.wav"
+        try:
+            cmd = [
+                'ffmpeg', '-y', '-i', video_path,
+                '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+                str(temp_audio)
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, shell=True)
+            return str(temp_audio)
+        except Exception as e:
+            return None
+
+    def _merge_audio_to_video(self, video_path: str, audio_path: str, output_path: str) -> bool:
+        """Une el audio con el video procesado usando FFmpeg."""
+        try:
+            ext = os.path.splitext(output_path)[1].lower()
+            
+            # Seleccionar códec de audio sin pérdida según formato
+            if ext == '.mp4':
+                audio_codec = 'aac'  # AAC para MP4
+            elif ext == '.mkv':
+                audio_codec = 'flac'  # FLAC para MKV
+            else:
+                audio_codec = 'pcm_s16le'  # PCM para AVI
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', video_path,
+                '-i', audio_path,
+                '-c:v', 'copy',
+                '-c:a', audio_codec,
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            return result.returncode == 0
+            
+        except Exception as e:
+            return False
 
     def hide_text_in_video(self, video_path: str, text: str, password: str, output_path: str, 
                           progress_callback=None) -> Tuple[bool, str]:
@@ -110,7 +156,6 @@ class FrameStegano:
             encrypted_message = self._encrypt_message(text, password)
             
             # 2. Preparar el mensaje para incrustar
-            # Formato: MARKER + LENGTH(16 chars) + ENCRYPTED_DATA + END_MARKER
             full_msg = f"{self.MAGIC_MARKER}{len(encrypted_message):016d}"
             full_msg_bin = self._to_bin(full_msg)
             encrypted_bin = self._to_bin(encrypted_message)
@@ -129,11 +174,14 @@ class FrameStegano:
             fps = cap.get(cv2.CAP_PROP_FPS)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
-            # Lista de códecs en orden de preferencia (sin pérdida)
+            # Crear archivo temporal sin audio
+            temp_video_path = str(self.temp_dir / f"temp_no_audio_{Path(output_path).name}")
+            
+            # Lista de códecs en orden de preferencia
             codec_options = [
-                ('FFV1', '.avi'),  # FFV1 - Lossless, mejor opción
-                ('XVID', '.avi'),  # Xvid - Muy compatible
-                ('MJPG', '.avi'),  # Motion JPEG
+                ('FFV1', '.avi'),
+                ('XVID', '.avi'),
+                ('MJPG', '.avi'),
             ]
             
             fourcc = None
@@ -144,16 +192,14 @@ class FrameStegano:
             for codec_name, recommended_ext in codec_options:
                 try:
                     fourcc = cv2.VideoWriter_fourcc(*codec_name)
-                    
-                    # Ajustar extensión si es necesario
-                    output_test = output_path
-                    if not output_path.lower().endswith(recommended_ext):
-                        output_test = str(Path(output_path).with_suffix(recommended_ext))
+                    output_test = temp_video_path
+                    if not temp_video_path.lower().endswith(recommended_ext):
+                        output_test = str(Path(temp_video_path).with_suffix(recommended_ext))
                     
                     out = cv2.VideoWriter(output_test, fourcc, fps, (width, height))
                     
                     if out.isOpened():
-                        output_path = output_test  # Usar la ruta ajustada
+                        temp_video_path = output_test
                         video_created = True
                         break
                     else:
@@ -167,40 +213,27 @@ class FrameStegano:
                     "No se pudo crear el video de salida.\n\n"
                     "Posibles soluciones:\n"
                     "1. Usa la extensión .avi en lugar de .mp4\n"
-                    "2. Instala ffmpeg: pip install opencv-python-headless\n"
+                    "2. Instala ffmpeg en el sistema\n"
                     "3. Verifica que el directorio de salida sea escribible"
                 )
             
             frame_count = 0
             finished = False
             
+            # Procesar frames
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
                 
-                # Si aún hay bits por escribir
                 if not finished and bit_idx < total_bits:
-                    # Aplanamos el canal azul (índice 0) para iterar rápido
                     blue_channel = frame[:, :, 0].flatten()
-                    
-                    # Cuántos bits caben en este frame
                     bits_needed = total_bits - bit_idx
                     bits_to_write = min(len(blue_channel), bits_needed)
-                    
-                    # Extraer los bits correspondientes del mensaje
                     msg_bits_chunk = bits[bit_idx : bit_idx + bits_to_write]
-                    
-                    # Convertir chunk de bits a array de enteros (0 o 1)
                     bits_array = np.array([int(b) for b in msg_bits_chunk], dtype=np.uint8)
-                    
-                    # Modificar LSB: (pixel & 254) | bit
-                    # 254 es 11111110 en binario (máscara para limpiar LSB)
                     blue_channel[:bits_to_write] = (blue_channel[:bits_to_write] & 254) | bits_array
-                    
-                    # Restaurar forma original
                     frame[:, :, 0] = blue_channel.reshape((height, width))
-                    
                     bit_idx += bits_to_write
                     if bit_idx >= total_bits:
                         finished = True
@@ -209,23 +242,97 @@ class FrameStegano:
                 frame_count += 1
                 
                 if progress_callback and frame_count % 10 == 0:
-                    prog = int((frame_count / total_frames) * 100)
+                    prog = int((frame_count / total_frames) * 50)
                     progress_callback(prog)
             
             cap.release()
             out.release()
             
             if not finished:
+                if os.path.exists(temp_video_path):
+                    os.remove(temp_video_path)
                 return False, "El video es demasiado corto para este mensaje."
             
-            size_mb = os.path.getsize(output_path) / (1024 * 1024)
-            return True, (
-                f"✅ Mensaje oculto exitosamente.\n"
-                f"Guardado como: {Path(output_path).name}\n"
-                f"Tamaño: {size_mb:.2f} MB\n"
-                f"Cifrado: Fernet (AES-128)\n"
-                f"Códec: {codec_name}"
-            )
+            # 3. Agregar audio usando FFmpeg
+            try:
+                if progress_callback:
+                    progress_callback(60)
+                
+                # Extraer audio del video original
+                temp_audio_path = self._extract_audio_from_video(video_path)
+                
+                if temp_audio_path and os.path.exists(temp_audio_path):
+                    if progress_callback:
+                        progress_callback(70)
+                    
+                    # Ajustar extensión de salida
+                    final_output = output_path
+                    if not output_path.lower().endswith(('.mp4', '.avi', '.mkv')):
+                        final_output = str(Path(output_path).with_suffix('.mp4'))
+                    
+                    # Combinar video procesado con audio original
+                    if self._merge_audio_to_video(temp_video_path, temp_audio_path, final_output):
+                        if progress_callback:
+                            progress_callback(100)
+                        
+                        # Limpiar archivos temporales
+                        if os.path.exists(temp_video_path):
+                            os.remove(temp_video_path)
+                        if os.path.exists(temp_audio_path):
+                            os.remove(temp_audio_path)
+                        
+                        size_mb = os.path.getsize(final_output) / (1024 * 1024)
+                        
+                        return True, (
+                            f"✅ Mensaje oculto exitosamente.\n"
+                            f"Guardado como: {Path(final_output).name}\n"
+                            f"Tamaño: {size_mb:.2f} MB\n"
+                            f"Cifrado: Fernet (AES-128)\n"
+                            f"Códec: {codec_name}\n"
+                            f"Audio: Sí"
+                        )
+                    else:
+                        # Si falla merge, usar video sin audio
+                        import shutil
+                        shutil.move(temp_video_path, output_path)
+                        size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                        
+                        return True, (
+                            f"⚠️ Mensaje oculto, pero sin audio.\n"
+                            f"Error al combinar audio con FFmpeg.\n"
+                            f"Guardado como: {Path(output_path).name}\n"
+                            f"Tamaño: {size_mb:.2f} MB\n"
+                            f"Códec: {codec_name}"
+                        )
+                else:
+                    # Video original sin audio
+                    import shutil
+                    shutil.move(temp_video_path, output_path)
+                    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                    
+                    return True, (
+                        f"✅ Mensaje oculto exitosamente.\n"
+                        f"Guardado como: {Path(output_path).name}\n"
+                        f"Tamaño: {size_mb:.2f} MB\n"
+                        f"Cifrado: Fernet (AES-128)\n"
+                        f"Códec: {codec_name}\n"
+                        f"Audio: No (video original sin audio)"
+                    )
+                    
+            except Exception as audio_error:
+                # Si falla todo el proceso de audio
+                if os.path.exists(temp_video_path):
+                    import shutil
+                    shutil.move(temp_video_path, output_path)
+                
+                size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                return True, (
+                    f"⚠️ Mensaje oculto, pero sin audio.\n"
+                    f"Error: {str(audio_error)}\n"
+                    f"Guardado como: {Path(output_path).name}\n"
+                    f"Tamaño: {size_mb:.2f} MB\n"
+                    f"Códec: {codec_name}"
+                )
             
         except Exception as e:
             return False, f"Error: {str(e)}"
